@@ -1,0 +1,37 @@
+---
+title: "FTDR Assignment 1"
+author: "Jesse Nieuwkoop (1689959)"
+date: "24-11-2024"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+  pdf_document: null
+---
+
+---
+```{r}
+# Import the libraries
+library(ggplot2)
+library(tidyverse)
+library(magrittr)
+library(micemd)
+library(jomo)
+library(pan)
+library(lme4)
+library(knitr)
+library(rmarkdown)
+library(plotly)
+library(devtools)
+library(class)
+library(car)
+library(MASS)
+library(ISLR)
+library(mice)
+```
+
+```{r}
+data <- read_csv("Airbnb_Open_Data.csv")
+```
+
