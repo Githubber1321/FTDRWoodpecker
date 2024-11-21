@@ -1,7 +1,7 @@
 ---
-title: "FTDR Assignment 1"
+title: "FTDR Assignment 1: Kladderbestand"
 author: "Jesse Nieuwkoop (1689959)"
-date: "24-11-2024"
+date: "2024"
 output:
   html_document:
     toc: true
@@ -37,8 +37,36 @@ library(mice)
 ```
 
 ```{r}
-data <- read.csv("Airbnb_Open_Data.csv")
+# Load dataset
+data <- read.csv("../Airbnb_Open_Data.csv")
+```
 
+```{r}
+# View overview of variables
+str(data)
+```
+
+```{r}
+# Convert the price column using parse_number
+data <- data %>%
+  mutate(price = parse_number(price))
+```
+
+```{r}
+str(data)
 head(data)
 ```
+
+```{r}
+sum(is.na(data$service.fee))
+nrow(data)
+
+# Count occurrences of "0" in the column
+count_zeros <- sum(data$service.fee == 0)
+
+# Print the count
+print(count_zeros)
+
+```
+
 
