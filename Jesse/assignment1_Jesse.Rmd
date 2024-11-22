@@ -1,13 +1,11 @@
 ---
-title: "FTDR Assignment 1: Kladderbestand"
-author: "Jesse Nieuwkoop (1689959)"
-date: "2024"
+title: "FTDR Assignment 1: Logistic Regression"
+author: "Kladbestand van Jesse Nieuwkoop (1689959)"
 output:
   html_document:
     toc: true
     toc_float: true
     df_print: paged
-  pdf_document: null
 ---
 
 ---
@@ -17,7 +15,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-# Import the libraries
+# Course libraries
 library(ggplot2)
 library(tidyverse)
 library(magrittr)
@@ -34,39 +32,267 @@ library(car)
 library(MASS)
 library(ISLR)
 library(mice)
+
+# Added (Jesse)
+library(car)
+library(ggcorrplot)
 ```
+
+# Data preprocessing
+
+## Read dataset
 
 ```{r}
 # Load dataset
-data <- read.csv("../Airbnb_Open_Data.csv")
+data_raw <- read.csv("../Airbnb_Open_Data.csv")
+
+# View dimensions of dataset
+dim(data_raw)
+```
+## Inspect dataset
+
+```{r}
+# View first rows of dataset
+head(data_raw)
+```
+```{r}
+# View dataset structure
+dplyr::glimpse(data_raw)
+```
+
+## Filter dataset
+
+```{r}
+data_filtered <- data_raw %>%
+  dplyr::select(cancellation_policy,
+                room.type,
+                Construction.year,
+                service.fee,
+                minimum.nights,
+                number.of.reviews,
+                reviews.per.month,
+                review.rate.number,
+                availability.365,
+                price)
+```
+
+## Rename variables
+
+```{r}
+# Rename column names to snake_case format
+data_renamed <- data_filtered %>%
+  dplyr::rename(
+    room_type = room.type,
+    construction_year = Construction.year,
+    service_fee = service.fee,
+    minimum_nights = minimum.nights,
+    number_of_reviews = number.of.reviews,
+    reviews_per_month = reviews.per.month,
+    review_rate_number = review.rate.number,
+    availability_365 = availability.365,
+    price_usd = price
+  )
+```
+
+## Missing data handling
+
+```{r}
+# Count missing data
+data_renamed %>%
+  dplyr::summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  tidyr::pivot_longer(
+    cols = everything(),
+    names_to = "variable",
+    values_to = "na_count"
+  )
 ```
 
 ```{r}
-# View overview of variables
-str(data)
+# Determine missing data
+total_na_before <- sum(is.na(data_renamed))
+nrow_before <- nrow(data_renamed)
+
+# Drop all rows that contain empty or missing values
+data_cleaned <- data_renamed %>%
+  # Convert empty strings to NA
+  mutate(across(where(is.character), ~ trimws(.))) %>%
+  mutate(across(where(is.character), ~ na_if(., ""))) %>%
+  # Delete all records containing NA values
+  drop_na()
+
+# Determine dropped records
+nrow_after <- nrow(data_cleaned)
+nrow_diff <- nrow_before - nrow_after
+total_na_after <- sum(is.na(data_cleaned))
+
+# Inspect result
+cat(total_na_before, "missing values\n")
+cat(nrow_diff, "dropped rows\n")
+cat(total_na_after, "resulting missing values\n")
+```
+
+## Data type convertion
+
+```{r}
+# Determine factor levels
+table(data_cleaned$cancellation_policy)
+table(data_cleaned$room_type)
 ```
 
 ```{r}
-# Convert the price column using parse_number
-data <- data %>%
-  mutate(price = parse_number(price))
+# Convert necessary variables to factor types
+data_converted <- data_cleaned %>%
+  dplyr::mutate(
+    cancellation_policy = factor(cancellation_policy, 
+                                 levels = c("flexible", "moderate", "strict"),
+                                 ordered = TRUE),
+    room_type = factor(room_type, 
+                       ordered = FALSE)
+  )
 ```
 
 ```{r}
-str(data)
-head(data)
+# Verify structure of factors
+str(data_converted$cancellation_policy)
+str(data_converted$room_type)
+
+# Verify levels of factors
+levels(data_converted$cancellation_policy)
+levels(data_converted$room_type)
+
+# Verify if ordered
+is.ordered(data_converted$cancellation_policy)
+is.ordered(data_converted$room_type)
+```
+
+## Data parsing
+
+```{r}
+# Parse the price and service fee variables
+data_parsed <- data_converted %>%
+  dplyr::mutate(
+    price_usd = parse_number(price_usd),
+    service_fee = parse_number(service_fee)
+  )
 ```
 
 ```{r}
-sum(is.na(data$service.fee))
-nrow(data)
-
-# Count occurrences of "0" in the column
-count_zeros <- sum(data$service.fee == 0)
-
-# Print the count
-print(count_zeros)
-
+dplyr::glimpse(data_parsed)
 ```
 
+# Linear Regression
+
+## Prepare data for analysis
+
+```{r}
+# Standardize continuous variables
+data_scaled <- data_parsed %>%
+  mutate(
+    service_fee = scale(service_fee),
+    minimum_nights = scale(minimum_nights),
+    number_of_reviews = scale(number_of_reviews),
+    reviews_per_month = scale(reviews_per_month),
+    review_rate_number = scale(review_rate_number),
+    availability_365 = scale(availability_365)
+  )
+```
+
+```{r}
+# Set active data to last processed set
+data <- data_scaled
+```
+
+## Prepare functions
+
+```{r}
+test_multicol <- function(model) {
+  # Ensure the model is valid
+  if (!inherits(model, "lm")) {
+    stop("Input must be a linear model (lm object).")
+  }
+  
+  # Step 1: Show VIF results
+  print(car::vif(model))
+  
+  # Step 2: Extract data from the model
+  model_data <- model$model
+  
+  # Ensure only numeric columns are used for the correlation matrix
+  numeric_data <- model_data %>%
+    select_if(is.numeric)
+  
+  # Step 3: Show correlation matrix
+  cor_matrix <- cor(numeric_data)
+  
+  # Step 4: Visualize correlation matrix
+  print(ggcorrplot::ggcorrplot(cor_matrix, 
+                         method = "circle", 
+                         type = "lower", 
+                         lab = TRUE, 
+                         title = "Correlation Matrix of Numeric Predictors")
+  )
+}
+```
+
+## Models
+
+### Model 1: price_usd (All)
+
+```{r}
+model_1 <- lm(price_usd ~ 
+              cancellation_policy + 
+              room_type + 
+              construction_year + 
+              service_fee +
+              minimum_nights +
+              number_of_reviews +
+              reviews_per_month +
+              review_rate_number +
+              availability_365, 
+            data = data_parsed)
+summary(model_1)
+```
+```{r}
+# Test multicollinearity
+test_multicol(model_1)
+```
+
+### Model 2: price_usd (Ex. service_fee, reviews_per_month)
+
+```{r}
+model_2 <- lm(price_usd ~ 
+              cancellation_policy + 
+              room_type + 
+              construction_year + 
+              minimum_nights +
+              number_of_reviews +
+              review_rate_number +
+              availability_365, 
+            data = data_parsed)
+summary(model_2)
+```
+```{r}
+# Test multicollinearity
+test_multicol(model_2)
+```
+
+### Model 3: review_rate_number (Ex. service_fee, reviews_per_month)
+
+```{r}
+model_3 <- lm(review_rate_number ~ 
+              cancellation_policy + 
+              room_type + 
+              construction_year + 
+              minimum_nights +
+              number_of_reviews +
+              price_usd +
+              availability_365, 
+            data = data_parsed)
+summary(model_3)
+```
+
+```{r}
+# Test multicollinearity
+test_multicol(model_3)
+```
 
