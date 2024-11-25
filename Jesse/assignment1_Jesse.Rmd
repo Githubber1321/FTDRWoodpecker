@@ -34,8 +34,9 @@ library(ISLR)
 library(mice)
 
 # Added (Jesse)
-library(car)
-library(ggcorrplot)
+library(car)         # For  IVF test
+library(ggcorrplot)  # For correlation matrix heatmap plot
+library(patchwork)   # For combining plots
 ```
 
 # Data preprocessing
@@ -46,9 +47,13 @@ library(ggcorrplot)
 # Load dataset
 data_raw <- read.csv("../Airbnb_Open_Data.csv")
 
+# Set seed
+set.seed(42)
+
 # View dimensions of dataset
 dim(data_raw)
 ```
+
 ## Inspect dataset
 
 ```{r}
@@ -177,7 +182,410 @@ data_parsed <- data_converted %>%
 ```
 
 ```{r}
-dplyr::glimpse(data_parsed)
+# Inspect updated data structure
+str(data_parsed$price_usd)
+str(data_parsed$service_fee)
+```
+
+## Outlier handling
+
+```{r}
+data_pre_outlier_rmvl <- data_parsed
+
+numeric_columns <- c("construction_year", 
+                     "service_fee", 
+                     "minimum_nights", 
+                     "number_of_reviews", 
+                     "reviews_per_month", 
+                     "review_rate_number", 
+                     "availability_365", 
+                     "price_usd")
+```
+
+### General
+
+#### Visualization summarization function
+
+```{r}
+plot_info <- function(data, column_name) {
+  # Ensure the input column exists in the dataset
+  if (!column_name %in% names(data)) {
+    stop(paste("Column", column_name, "not found in the dataset."))
+  }
+  
+  # Extract the column
+  column_data <- data[[column_name]]
+  
+  # Ensure the column is numeric
+  if (!is.numeric(column_data)) {
+    stop(paste("Column", column_name, "is not numeric."))
+  }
+  
+  # Histogram
+  hist_plot <- ggplot(data, aes(x = !!sym(column_name))) +
+    geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+    labs(title = paste("Histogram of", column_name), x = column_name, y = "Frequency") +
+    theme_minimal()
+  
+  # Boxplot
+  box_plot <- ggplot(data, aes(x = !!sym(column_name))) +
+    geom_boxplot(fill = "skyblue", color = "black") +
+    labs(title = paste("Boxplot of", column_name), x = column_name, y = "") +
+    theme_minimal()
+  
+  # Density Plot
+  density_plot <- ggplot(data, aes(x = !!sym(column_name))) +
+    geom_density(fill = "skyblue", alpha = 0.5) +
+    labs(title = paste("Density Plot of", column_name), x = column_name, y = "Density") +
+    theme_minimal()
+  
+  # Q-Q Plot
+  qq_plot <- ggplot(data, aes(sample = !!sym(column_name))) +
+    stat_qq(color = "skyblue") +
+    stat_qq_line(color = "red") +
+    labs(title = paste("Q-Q Plot of", column_name), x = "Theoretical Quantiles", y = "Sample Quantiles") +
+    theme_minimal()
+  
+  # Combine all plots into a 2x2 grid
+  combined_plot <- (hist_plot | density_plot) / (box_plot | qq_plot)
+  
+  # Print the combined plot
+  print(combined_plot)
+}
+
+```
+
+#### Negative numeric removal
+
+```{r}
+# Count total rows
+nrow_bef_negremoval <- nrow(data_pre_outlier_rmvl)
+
+# Remove all rows that contain values lower than 0
+data_outlier_0 <- data_pre_outlier_rmvl %>%
+  dplyr::filter(
+    service_fee >= 0,
+    minimum_nights >= 0,
+    number_of_reviews >= 0,
+    reviews_per_month >= 0,
+    review_rate_number >= 0,
+    availability_365 >= 0,
+    price_usd >= 0
+  )
+
+# Print n removed rows
+cat(nrow_bef_negremoval - nrow(data_outlier_0), "rows removed")
+```
+
+#### IQR
+
+```{r}
+detect_outliers_iqr <- function(data, columns) {
+  for (col in columns) {
+    # Calculate Q1, Q3, and IQR
+    Q1 <- quantile(data[[col]], 0.25, na.rm = TRUE)
+    Q3 <- quantile(data[[col]], 0.75, na.rm = TRUE)
+    IQR <- Q3 - Q1
+    
+    # Calculate lower and upper bounds
+    lower_bound <- Q1 - 1.5 * IQR
+    upper_bound <- Q3 + 1.5 * IQR
+    
+    # Print bounds for the variable
+    cat("---", col, "---\n")
+    cat("Q1:", Q1, "Q3:", Q3, "IQR:", IQR, "\n")
+    cat("Lower Bound:", lower_bound, "Upper Bound:", upper_bound, "\n")
+    
+    # Count outliers
+    num_outliers <- sum(data[[col]] < lower_bound | data[[col]] > upper_bound, na.rm = TRUE)
+    cat("Number of outliers:", num_outliers, "\n\n")
+    
+    # Filter out outliers
+    data <- data[data[[col]] >= lower_bound & data[[col]] <= upper_bound, ]
+  }
+  return(data)
+}
+```
+
+```{r}
+# Apply IQR outlier removal
+data_iqr <- detect_outliers_iqr(data_outlier_0, numeric_columns)
+```
+
+### Specific
+
+#### 1: construction_year
+
+Ziet er prima uit: Geen extreme waarden / outliers.
+
+```{r}
+# Print summary
+summary(data_outlier_0$construction_year)
+```
+```{r}
+# Plot summary info
+plot_info(data_outlier_0, "construction_year")
+```
+
+```{r}
+data_outlier_1 <- data_outlier_0
+```
+
+#### 2: (service_fee)
+
+Ziet er prima uit: Geen extreme waarden / outliers.
+
+```{r}
+# Print summary
+summary(data_outlier_1$service_fee)
+```
+```{r}
+# Plot summary info
+plot_info(data_outlier_1, "service_fee")
+```
+
+```{r}
+data_outlier_2 <- data_outlier_1
+```
+
+#### 3: minimum_nights
+
+Veel extreme waarden: Komt waarschijnlijk omdat de hoge waarden ingesteld worden, zodat mensen niet gaan boeken (Zie bronnen). Geen idee hoe hier mee om te gaan...
+
+1. Boven 90 dagen alles weghalen (maar hier haal je ook legitieme values mee weg)
+2. Boven 365 dagen alles weghalen (maar hiermee weinig verschil)
+
+[Reddit 1](https://www.reddit.com/r/AirBnB/comments/1bg4oic/extremely_long_minimum_stay_policies_upwards_of/)
+
+> "I think it might be there way of blocking those dates while still being available on Airbnb search, I'm not sure. I've also seen the other method where listings that are usually $50 a night be priced at $10,000 a night. I, too, would like a clear explanation."
+
+[Reddit 2](https://www.reddit.com/r/AirBnB/comments/tcmlnw/90_day_minimum_stay_on_airbnb/)
+
+> "I often bump up my minimum night stay to actually prevent bookings during a certain time frame. Then one day, to my absolute shock, someone actually booked. So maybe just send them a message, it could be way too many different things."
+
+> "That’s local government limit. Some government requires the listing to host short term stays only with a permit. If the host didn’t get the permit in time, the listing is enforced to long term stays only. The threshold is per the regulation, generally 30, 90, or even 365 days. Besides, France government also permits a special kind of short term rental, mobility lease, which is 30 days minimum without the permit."
+
+```{r}
+# Print summary
+summary(data_outlier_2$minimum_nights)
+```
+```{r}
+# Plot summary info
+plot_info(data_outlier_2, "minimum_nights")
+```
+
+```{r}
+# Print total amount of > 370 minimum_nights
+data_outlier_2 %>%
+  dplyr::filter(minimum_nights > 370) %>%
+  dplyr::summarise(count = n())
+```
+```{r}
+# Remove extreme values with upper threshold
+data_outlier_TEMP2 <- data_outlier_2 %>%
+  dplyr::filter(minimum_nights <= 95)
+```
+
+```{r}
+# Print summary
+summary(data_outlier_TEMP2$minimum_nights)
+```
+```{r}
+# Plot summary info
+plot_info(data_outlier_TEMP2, "minimum_nights")
+```
+```{r}
+# Apply IQR outlier removal
+data_iqr <- detect_outliers_iqr(data_outlier_TEMP2, "minimum_nights")
+```
+
+```{r}
+data_outlier_3 <- data_outlier_2
+```
+
+#### 4: number_of_reviews
+
+Deze verdeling is vrij logisch. Ik zie geen reden tot outlier removal. Ook months_active laat geen verdachte verdeling zien.
+
+```{r}
+# Print summary
+summary(data_outlier_3$number_of_reviews)
+```
+```{r}
+# Plot summary info
+plot_info(data_outlier_3, "number_of_reviews")
+```
+```{r}
+# Print total amount of reviews > 100
+data_outlier_3 %>%
+  dplyr::filter(number_of_reviews > 100) %>%
+  dplyr::summarise(count = n())
+```
+
+```{r}
+# Create extra column that divides number of reviews by reviews per month
+data_outlier_3 <- data_outlier_3 %>%
+  dplyr::mutate(months_active = number_of_reviews / reviews_per_month)
+```
+
+```{r}
+# Print summary
+summary(data_outlier_3$months_active)
+```
+```{r}
+# Plot summary info
+plot_info(data_outlier_3, "months_active")
+```
+
+```{r}
+data_outlier_4 <- data_outlier_3
+```
+
+#### 5: reviews_per_month
+
+Door andere info in the grafiek te gebruiken, zijn er veel datapunten die in een maand meer reviews per maand ontvangen dan mogelijk n.a.v. max_stays_per_month uit te rekenen. Probleem hiermee is natuurlijk dat het mogelijk is dat een stay bijvoorbeeld in een latere maand gereviewed kan worden. Maar dan nog, als een stay 31 boekingen per maand kan hebben, betekent dit dat reviews_per_month
+
+```{r}
+# Print summary
+summary(data_outlier_4$reviews_per_month)
+```
+```{r}
+# Plot summary info
+plot_info(data_outlier_4, "reviews_per_month")
+```
+
+```{r}
+# Create new column 'max_stays_per_month'
+data_outlier_4 <- data_outlier_4 %>%
+  dplyr::mutate(max_stays_per_month = 31 / minimum_nights)
+```
+
+```{r}
+# Print summary
+summary(data_outlier_4$max_stays_per_month)
+```
+```{r}
+# Plot summary info
+plot_info(data_outlier_4, "max_stays_per_month")
+```
+```{r}
+# Count the points above the line y = x
+count_above_line <- sum(data_outlier_4$reviews_per_month > data_outlier_4$max_stays_per_month, na.rm = TRUE)
+
+# Scatterplot with y = x line, colored points, and count in title
+ggplot(data_outlier_4, aes(x = max_stays_per_month, y = reviews_per_month)) +
+  geom_point(aes(color = reviews_per_month > max_stays_per_month), alpha = 0.6) +  # Color points based on condition
+  geom_abline(slope = 1, intercept = 0, color = "black", linetype = "dashed", size = 1) +  # y = x line
+  scale_color_manual(values = c("FALSE" = "blue", "TRUE" = "red"), labels = c("Below Line", "Above Line")) +  # Define colors
+  labs(
+    title = paste("Reviews per Month vs. Maximum Stays per Month\nPoints Above Line:", count_above_line),
+    x = "Maximum Stays per Month",
+    y = "Reviews per Month",
+    color = "Point Position"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Remove data_outlier_pos$reviews_per_month > data_outlier_pos$max_stays_per_month
+data_outlier_5 <- data_outlier_4 %>%
+  dplyr::filter(reviews_per_month <= max_stays_per_month)
+```
+
+#### 6: review_rate_number
+
+Niets sus. Geen uitschieters.
+
+```{r}
+# Print summary
+summary(data_outlier_5$review_rate_number)
+```
+```{r}
+# Plot summary info
+plot_info(data_outlier_5, "review_rate_number")
+```
+
+```{r}
+data_outlier_6 <- data_outlier_5
+```
+
+#### 7: availability_365
+
+```{r}
+# Print summary
+summary(data_outlier_6$availability_365)
+```
+```{r}
+# Plot summary info
+plot_info(data_outlier_6, "availability_365")
+```
+
+```{r}
+data_outlier_6 %>%
+  dplyr::arrange(desc(availability_365)) %>%  # Sort rows by availability_365 in descending order
+  dplyr::select(availability_365)            # Select only the availability_365 column
+```
+
+```{r}
+# remove all values above 1000 in availability_365
+data_outlier_7 <- data_outlier_6 %>%
+  dplyr::filter(availability_365 <= 1000)
+```
+
+#### 8: price_usd
+
+In principe geen uitschieters, maar wel opvallend dat de data niet normaal verdeeld is rond "normale" bedragen, alhoewel... verblijf is vaak duur.
+
+```{r}
+# Print summary
+summary(data_outlier_7$price_usd)
+```
+```{r}
+# Plot summary info
+plot_info(data_outlier_7, "price_usd")
+```
+
+```{r}
+# Plot summary info
+data_outlier_8 <- data_outlier_7
+```
+
+## Final inspection
+
+```{r}
+# Store last determined dataset in separate object
+data_inspect <- data_outlier_8
+```
+
+```{r}
+# Count missing data
+data_inspect %>%
+  dplyr::summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  tidyr::pivot_longer(
+    cols = everything(),
+    names_to = "variable",
+    values_to = "na_count"
+  )
+```
+
+```{r}
+# Inspect data structure
+dplyr::glimpse(data_inspect)
+```
+
+```{r}
+data_ready <- data_inspect
+```
+
+## Save 1000 size sample
+
+```{r}
+# Take a random sample of 1000 rows
+Airbnb_Open_Data_sample <- data_ready %>%
+  sample_n(1000)
+
+# Save the sampled dataset to a CSV file
+write.csv(Airbnb_Open_Data_sample, "Airbnb_Open_Data_1000.csv", row.names = FALSE)
 ```
 
 # Linear Regression
@@ -185,21 +593,66 @@ dplyr::glimpse(data_parsed)
 ## Prepare data for analysis
 
 ```{r}
-# Standardize continuous variables
-data_scaled <- data_parsed %>%
+# Standardize relevant numeric variables
+data_standardized <- data_ready %>%
   mutate(
-    service_fee = scale(service_fee),
-    minimum_nights = scale(minimum_nights),
-    number_of_reviews = scale(number_of_reviews),
-    reviews_per_month = scale(reviews_per_month),
-    review_rate_number = scale(review_rate_number),
-    availability_365 = scale(availability_365)
+    service_fee = as.numeric(scale(service_fee)),
+    minimum_nights = as.numeric(scale(minimum_nights)),
+    number_of_reviews = as.numeric(scale(number_of_reviews)),
+    reviews_per_month = as.numeric(scale(reviews_per_month)),
+    review_rate_number = as.numeric(scale(review_rate_number)),
+    availability_365 = as.numeric(scale(availability_365))
   )
 ```
 
 ```{r}
+# Check mean and standard deviation for scaled variables
+summary(data_standardized)
+```
+```{r}
+summary(data_standardized$minimum_nights)
+summary(data_standardized$availability_365)
+
+```
+```{r}
+library(ggplot2)
+
+# Plot for minimum_nights
+ggplot(data_ready, aes(x = minimum_nights)) +
+  geom_histogram(bins = 50, fill = "blue", alpha = 0.7) +
+  labs(title = "Distribution of Minimum Nights", x = "Minimum Nights", y = "Count")
+
+# Plot for availability_365
+ggplot(data_ready, aes(x = availability_365)) +
+  geom_histogram(bins = 50, fill = "green", alpha = 0.7) +
+  labs(title = "Distribution of Availability (365)", x = "Availability (365)", y = "Count")
+
+```
+
+```{r}
+# Quantiles for extreme values
+quantile(data_standardized$minimum_nights, probs = c(0.95, 0.99))
+quantile(data_standardized$availability_365, probs = c(0.95, 0.99))
+
+```
+
+```{r}
 # Set active data to last processed set
-data <- data_scaled
+data <- data_standardized
+```
+
+```{r}
+library(dplyr)
+
+data_ready %>%
+  filter(minimum_nights > 100) %>%
+  summarise(count = n())
+
+```
+
+
+```{r}
+dplyr::glimpse(data)
 ```
 
 ## Prepare functions
@@ -295,4 +748,3 @@ summary(model_3)
 # Test multicollinearity
 test_multicol(model_3)
 ```
-
