@@ -1,0 +1,105 @@
+---
+title: "assignment1_judith"
+author: "j. van der Wolf"
+date: "2024-11-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#library
+library(tidyverse)
+library(dplyr)
+
+#data
+airbnb_raw <- read.csv("Airbnb_Open_Data.csv")
+```
+
+#Datacleaning 
+
+##Subset
+```{r}
+airbnb_raw <- airbnb_raw %>%
+  select(cancellation_policy, 
+         room.type, 
+         Construction.year,
+         service.fee,
+         minimum.nights,
+         number.of.reviews,
+         reviews.per.month,
+         review.rate.number,
+         availability.365,
+         price)
+```
+
+##Duplications (12012) 
+```{r}
+sum(duplicated(airbnb_raw))
+
+#Remove duplicate rows 
+airbnb_raw1 <- airbnb_raw %>% unique()
+```
+
+##Measurementlevel  
+```{r}
+str(airbnb_raw1)
+
+#Converting service.fee and price from chr. to numb
+airbnb_raw2 <- airbnb_raw1 %>%
+  mutate(price = parse_number(price), service.fee = parse_number(service.fee))
+
+#Converting cancellation_policy, room.type from chr. to factor 
+airbnb_raw2 <- mutate(airbnb_raw2,
+              cancel_pol = as_factor(cancellation_policy),
+              roomtype = as_factor(room.type)
+              )
+str(airbnb_raw2)
+```
+
+##Missing values 
+```{r}
+colSums(is.na(airbnb_raw2[, c("cancel_pol", "price", "roomtype", "Construction.year", "service.fee", "minimum.nights", "number.of.reviews", "reviews.per.month", "review.rate.number", "availability.365" )]))
+
+#Q: do we want to remove all missing data observations? 
+```
+
+##Weird shit 
+```{r}
+#Roomtype
+#only private room, entire home , shared room in analysis (hotel room is about certain services regardless if room is private/shared.)
+airbnb_raw2 <- airbnb_raw2 %>% 
+  filter(roomtype != "Hotel room") %>%   
+  droplevels()
+
+#Cancel_pol
+#only maintain levels "stric", "moderate" and "flexible", there is an unknown "" level that contains 76 observations.
+levels(airbnb_raw2$cancel_pol)
+table(airbnb_raw2$cancel_pol)
+
+airbnb_raw2 <- airbnb_raw2 %>% 
+  filter(cancel_pol != "") %>%   
+  droplevels()
+
+levels(airbnb_raw2$cancel_pol)
+
+#Constructionyear -> suggestion to remove NA's (204).
+summary(airbnb_raw2$Construction.year)
+
+#Service.fee -> suggestion to remove NA's (273)
+summary(airbnb_raw2$service.fee) 
+
+#minimum.nights -> suggestion to remove NA's (391)
+#looking at interquartiles noticable huge outliers. 
+#Suggestion => only keep minimum.nights in a range between 0 and 2000. The negative numbers don't make sense to me. 
+summary(airbnb_raw2$minimum.nights)
+datanight <- airbnb_raw2 %>% 
+  pivot_longer(cols = "minimum.nights", names_to = "minN", values_to = "Value")
+
+(outliernight <- ggplot(datanight, aes(x = minN, y = Value)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16, outlier.size = 2) +
+  labs(title = "Boxplots of minimumnight", x = "min.night", y = "Value") +
+  theme_minimal())
+
+```
+
