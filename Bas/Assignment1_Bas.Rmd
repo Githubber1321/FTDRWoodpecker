@@ -1,0 +1,77 @@
+---
+title: "Assignment1_Bas"
+author: "Bas Bouwhuijzen 2130616"
+date: "2024-11-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r cars}
+library(ggplot2)
+library(tidyverse)
+library(magrittr)
+library(micemd)
+library(jomo)
+library(pan)
+library(lme4)
+library(knitr)
+library(rmarkdown)
+library(plotly)
+library(devtools)
+library(GGally)
+```
+
+```{r}
+# Load dataset
+data <- read.csv("../Airbnb_Open_Data.csv")
+```
+
+```{r}
+data_filtered <- data %>%
+  dplyr::select(cancellation_policy,
+                room.type,
+                Construction.year,
+                service.fee,
+                minimum.nights,
+                number.of.reviews,
+                reviews.per.month,
+                review.rate.number,
+                availability.365,
+                price)
+```
+
+```{r}
+data_cleaned1 <- data_filtered %>%
+  na.omit()
+```
+
+```{r}
+#function to remove outliers based on IQR
+remove_outliers <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  x[x < (Q1 - 1.5 * IQR) | x > (Q3 + 1.5 * IQR)] <- NA
+  return(x)
+}
+
+
+data_cleaned <- data_cleaned1 %>%
+  mutate(across(where(is.numeric), ~ remove_outliers(.))) %>%
+  na.omit()  # Remove rows with NAs introduced by the outlier removal
+```
+
+```{r}
+ggpairs(data_cleaned1 %>% select(where(is.numeric)),
+        title = "Scatterplot Matrix - Original Data")
+```
+
+```{r}
+ggpairs(data_cleaned %>% select(where(is.numeric)),
+        title = "Scatterplot Matrix - Cleaned Data")
+
+```
+
