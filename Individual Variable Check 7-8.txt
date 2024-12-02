@@ -1,0 +1,238 @@
+---
+title: "FTDR Assignment 1"
+author: "Jesse Nieuwkoop (1689959)"
+date: "28-11-2024-"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+---
+
+---
+
+# Preparation
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r}
+# Import the libraries
+library(ggplot2)
+library(tidyverse)
+```
+
+## Read data
+
+```{r}
+# Read data
+data_raw <- read.csv("C:/Users/jayps/Fundamentals Data/Airbnb_Open_Data.csv")
+
+# View data structure
+dplyr::glimpse(data_raw)
+```
+
+# Preprocessing
+
+```{r}
+# Load raw data onto new object
+data <- data_raw
+```
+
+## Duplicates
+
+```{r}
+# Print total duplicates
+sum(duplicated(data))
+
+# Remove duplicate rows 
+data <- data %>% unique()
+```
+
+## Subset & Rename
+
+```{r}
+# Subset data
+data <- data %>%
+  dplyr::select(cancellation_policy,
+                room.type,
+                Construction.year,
+                service.fee,
+                minimum.nights,
+                number.of.reviews,
+                reviews.per.month,
+                review.rate.number,
+                availability.365,
+                price)
+
+# Rename column names to snake_case format
+data <- data %>%
+  dplyr::rename(
+    room_type = room.type,
+    construction_year = Construction.year,
+    service_fee = service.fee,
+    minimum_nights = minimum.nights,
+    number_of_reviews = number.of.reviews,
+    reviews_per_month = reviews.per.month,
+    review_rate_number = review.rate.number,
+    availability_365 = availability.365,
+    price_usd = price
+  )
+```
+
+## Missing values
+
+```{r}
+# Count missing data
+data %>%
+  dplyr::summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  tidyr::pivot_longer(
+    cols = everything(),
+    names_to = "Variable",
+    values_to = "NA Count"
+  )
+```
+
+```{r}
+# Drop all rows that contain empty or missing values
+data <- data %>%
+  # Convert empty character variables to NA
+  mutate(across(where(is.character), ~ trimws(.))) %>%
+  mutate(across(where(is.character), ~ na_if(., ""))) %>%
+  
+  # Drop records with NA values
+  drop_na()
+```
+
+## Measurement level check and adjustment
+
+```{r}
+# Convert variables to factor types
+data <- data %>%
+  dplyr::mutate(
+    cancellation_policy = factor(cancellation_policy, 
+                                 levels = c("flexible", "moderate", "strict"),
+                                 ordered = TRUE),
+    room_type = factor(room_type,
+                       ordered = FALSE)
+  )
+
+# View new structure
+str(data$cancellation_policy)
+str(data$room_type)
+```
+
+```{r}
+# Parse price numeric values
+data <- data %>%
+  dplyr::mutate(
+    price_usd = parse_number(price_usd),
+    service_fee = parse_number(service_fee)
+  )
+```
+
+## Individual variable check (Inspect)
+
+Bedoeling om voor elke variabele een nuttige figuur weer te geven en summary descriptives te laten zien.
+
+Categorisch:
+
+- Counts + Percentages
+- Plot: Bar plot
+
+Continuous:
+
+- Mean, median, range, min, max, sd
+- Plot: Histogram
+- Als eindig nummer (finite), dan mag ook bar plot.
+
+Dingen die opvallen verwijderen.
+
+GEEN IQR! Alleen werkelijk onmogelijk waarden weg.
+
+### 1: cancellation_policy
+
+```{r}
+# Verify structure of factors
+str(data$cancellation_policy)
+
+# Verify levels of factors
+levels(data$cancellation_policy)
+
+# Verify if ordered
+is.ordered(data$cancellation_policy)
+```
+
+### 2: room_type
+
+### 3: review_rate_number
+
+### 4: construction_year
+
+### 5: service_fee
+
+### 6: minimum_nights
+
+### 7: number_of_reviews
+```{r}
+# Calculate descriptive statistics for number_of_reviews
+summary_stats <- data %>%
+  summarise(
+    mean_reviews = mean(number_of_reviews, na.rm = TRUE),
+    median_reviews = median(number_of_reviews, na.rm = TRUE),
+    range_reviews = range(number_of_reviews, na.rm = TRUE),
+    min_reviews = min(number_of_reviews, na.rm = TRUE),
+    max_reviews = max(number_of_reviews, na.rm = TRUE),
+    sd_reviews = sd(number_of_reviews, na.rm = TRUE)
+  )
+
+# Print the summary statistics
+print(summary_stats)
+```
+Mean: 32.270, Median: 11, Range: 1-1024, SD: 51.858
+
+```{r}
+# Plot histogram for number_of_reviews
+ggplot(data, aes(x = number_of_reviews)) +
+  geom_histogram(binwidth = 5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Number of Reviews", x = "Number of Reviews", y = "Frequency") +
+  theme_minimal()
+```
+
+### 8: reviews_per_month
+```{r}
+# Descriptive statistics for reviews_per_month
+summary_stats_reviews_per_month <- data %>%
+  summarise(
+    mean_reviews = mean(reviews_per_month, na.rm = TRUE),
+    median_reviews = median(reviews_per_month, na.rm = TRUE),
+    min_reviews = min(reviews_per_month, na.rm = TRUE),
+    max_reviews = max(reviews_per_month, na.rm = TRUE),
+    sd_reviews = sd(reviews_per_month, na.rm = TRUE)
+  )
+
+# Display summary statistics
+print(summary_stats_reviews_per_month)
+```
+Mean: 1.375, Median: 0.74, Range: 0.01-90, SD: 1.746
+
+```{r}
+# Bar plot for reviews_per_month
+ggplot(data, aes(x = factor(reviews_per_month))) +
+  geom_bar(fill = "lightblue", color = "black", alpha = 0.7) +
+  theme_minimal() +
+  labs(
+    title = "Frequency of Reviews per Month",
+    x = "Reviews per Month",
+    y = "Count"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+### 9: availability_365
+
+### 10: price_usd
+
+# Linear Regression
